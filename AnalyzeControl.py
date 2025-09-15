@@ -46,7 +46,7 @@ import stat
 import hashlib
 import subprocess
 import argparse
-import ConfigParser
+import configparser
 import logging
 import logging.handlers
 import shutil
@@ -89,12 +89,14 @@ def init_cfg(cfg_path, args):
 	define > args > env > ini
 	"""
 	cfg = {}
-	# file
-	conf_parser = ConfigParser.ConfigParser()
+	# file (use configparser for Python 3)
+	conf_parser = configparser.ConfigParser()
 	if os.path.exists(cfg_path):
 		conf_parser.read(cfg_path)
-	for k,v in conf_parser.items(SECTION_DEF):
-		cfg[k]=v
+	# read section if it exists
+	if conf_parser.has_section(SECTION_DEF):
+		for k,v in conf_parser.items(SECTION_DEF):
+			cfg[k]=v
 
 	# env
 	for k,v in os.environ.items():
@@ -103,15 +105,19 @@ def init_cfg(cfg_path, args):
 			cfg[cfg_key]=v
 	
 	# args
-	args_dict =  vars(args)
-	for k,v in args_dict.iteritems():
+	args_dict = vars(args)
+	for k,v in args_dict.items():
 		cfg[k]=v
 
-	# define
-	cfg["BASE_HOME"] = BASE_HOME
+	# define: pick an effective BASE_HOME we can use (fall back to cwd if /root not writable)
+	if os.access(BASE_HOME, os.W_OK):
+		effective_base_home = BASE_HOME
+	else:
+		effective_base_home = os.getcwd()
+	cfg["BASE_HOME"] = effective_base_home
 
 	# adjustment
-	file_log_dir = os.path.join(BASE_HOME, cfg["log_dir"])
+	file_log_dir = os.path.join(cfg["BASE_HOME"], cfg["log_dir"])
 	cfg["file_log_dir"] = file_log_dir
 	cfg["static_finished_fname"] = os.path.join(file_log_dir,cfg["static_finished_fname"])
 	cfg["dynamic_finished_fname"] = os.path.join(file_log_dir,cfg["dynamic_finished_fname"])
@@ -148,12 +154,36 @@ def init_arguments(argv):
 	parser.add_argument('-l', '--target', help='Set the absolute path of the target', type=str, required=True)
 	args = parser.parse_args()
 	
-	# cd into base_home
-	os.chdir(BASE_HOME)
-	# configuration init
+	# preserve original cwd so we can resolve relative config paths (important when running under sudo)
+	orig_cwd = os.getcwd()
 
-	# I need change dir before pasering the configuration.
-	cfg = init_cfg(args.config_path,args)
+	# resolve config path: prefer an absolute path or a path relative to the original cwd
+	cfg_path = args.config_path
+	if not os.path.isabs(cfg_path):
+		candidate = os.path.join(orig_cwd, cfg_path)
+		if os.path.exists(candidate):
+			cfg_path = candidate
+
+	# resolve target path similarly so relative paths work when running under sudo
+	if hasattr(args, 'target') and args.target:
+		tgt = args.target
+		if not os.path.isabs(tgt):
+			candidate_t = os.path.join(orig_cwd, tgt)
+			if os.path.exists(candidate_t):
+				args.target = candidate_t
+
+	# configuration init (read config before changing dir)
+	cfg = init_cfg(cfg_path, args)
+
+	# cd into base_home afterwards
+	try:
+		os.chdir(BASE_HOME)
+	except Exception as e:
+		# cannot change to BASE_HOME (likely not running as root), fall back to cwd
+		print("Warning: cannot chdir to BASE_HOME=%s: %s. Falling back to current working dir." % (BASE_HOME, str(e)))
+		base_home_fallback = os.getcwd()
+		os.chdir(base_home_fallback)
+
 	return cfg
 
 def init_log(cfg):
@@ -165,7 +195,7 @@ def init_log(cfg):
 	fmt = logging.Formatter(LOG_FMT)
 
 	# file
-	file_log_path = os.path.join(BASE_HOME, cfg.log_dir, cfg.file_log)
+	file_log_path = os.path.join(cfg.BASE_HOME, cfg.log_dir, cfg.file_log)
 	file_handler = logging.handlers.WatchedFileHandler(file_log_path)
 	file_handler.setFormatter(fmt)
 	log.addHandler(file_handler)
@@ -186,10 +216,23 @@ def init_log(cfg):
 	# LD_DEBUG
 	cfg.ld_debug_log_abs = os.path.join(file_log_dir, cfg.ld_debug_log)
 	# inetsim dir
-	if not os.path.exists(cfg.inetsim_log_dir):
-		os.mkdir(cfg.inetsim_log_dir)
-	if not os.path.exists(cfg.inetsim_log_report_dir):
-		os.mkdir(cfg.inetsim_log_report_dir)
+	def _ensure_writable_dir(path_key):
+		path = getattr(cfg, path_key)
+		# if path is under /root or not writable, move under cfg.BASE_HOME
+		if path.startswith('/root') or (not os.access(os.path.dirname(path) if os.path.dirname(path) else '/', os.W_OK)):
+			rel = os.path.relpath(path, '/root')
+			new_path = os.path.join(cfg.BASE_HOME, rel)
+			setattr(cfg, path_key, new_path)
+			path = new_path
+		if not os.path.exists(path):
+			try:
+				os.makedirs(path, exist_ok=True)
+			except Exception:
+				log.warning("Could not create directory %s; continuing", path)
+		return path
+
+	_ensure_writable_dir('inetsim_log_dir')
+	_ensure_writable_dir('inetsim_log_report_dir')
 
 def init_workspace_inplace(cfg):
 	workspace_dir = os.path.dirname(cfg.target)
@@ -198,10 +241,37 @@ def init_workspace_inplace(cfg):
 	if os.path.exists(cfg.target):
 		target_abs_path = os.path.abspath(cfg.target)
 		cfg.target_abs_path = target_abs_path
-		os.chmod(target_abs_path, stat.S_IRUSR)
+		try:
+			os.chmod(target_abs_path, stat.S_IRUSR)
+		except PermissionError:
+			log.warning("No permission to chmod %s; continuing", target_abs_path)
 	else:
-		log.critical("%s dose not exist.", cfg.target)
-		os._exit(1)
+		# try to find a similarly named file in the same directory as a helpful fallback
+		workspace_dir = os.path.dirname(cfg.target) or '.'
+		try:
+			candidates = []
+			base_name = os.path.basename(cfg.target)
+			# use prefix before first dot as a simple stem (e.g. read from read.32.elf)
+			stem = base_name.split('.')[0]
+			for f in os.listdir(workspace_dir):
+				if f.startswith(stem + '.'):
+					candidates.append(os.path.join(workspace_dir, f))
+			if candidates:
+				# prefer non-empty executable-like candidates; pick the first one
+				chosen = os.path.abspath(candidates[0])
+				log.warning("Target %s not found; falling back to %s", cfg.target, chosen)
+				cfg.target = chosen
+				cfg.target_abs_path = chosen
+				try:
+					os.chmod(chosen, stat.S_IRUSR)
+				except PermissionError:
+					log.warning("No permission to chmod %s; continuing", chosen)
+			else:
+				log.critical("%s does not exist.", cfg.target)
+				os._exit(1)
+		except Exception:
+			log.critical("%s does not exist.", cfg.target)
+			os._exit(1)
 	log.info("Target absolute path: %s", cfg.target_abs_path)
 
 def init_workspace(cfg, is_inplace=False):
@@ -233,6 +303,9 @@ def init_workspace(cfg, is_inplace=False):
 def get_filetype(file_path):
 	if os.path.exists(file_path):
 		output = subprocess.check_output(['/usr/bin/file', file_path])
+		# subprocess.check_output may return bytes or str depending on Python version/platform.
+		if isinstance(output, bytes):
+			output = output.decode('utf-8', errors='replace')
 		parts = output.split(":")
 		file_type = "UNKNOWN"
 		full_info = ""
@@ -383,15 +456,71 @@ def clean_temp(temp_list):
 def init_target_loader(cfg):
 	file_path_32 = cfg.target_loader+".32.elf";
 	file_path_64 = cfg.target_loader+".64.elf";
+	# if configured under /root and not writable here, prefer repo's util/target_loader
+	# Use the repository directory (this file's directory) so we can find bundled loaders
+	repo_root = os.path.abspath(os.path.dirname(__file__))
+	if cfg.target_loader.startswith('/root'):
+		repo_loader_dir = os.path.join(repo_root, 'util', 'target_loader')
+		repo_loader_64 = os.path.join(repo_loader_dir, 'target_loader.64.elf')
+		repo_loader_32 = os.path.join(repo_loader_dir, 'target_loader.32.elf')
+		if os.path.exists(repo_loader_64) and os.path.exists(repo_loader_32):
+			file_path_64 = repo_loader_64
+			file_path_32 = repo_loader_32
+	# Prefer configured loaders, but fall back to project-provided loaders if missing
+	if not (os.path.exists(file_path_32) and os.path.exists(file_path_64)):
+		# check repo util path (use repo_root so cwd changes don't break lookup)
+		repo_loader_64 = os.path.join(repo_root, 'util', 'target_loader', 'target_loader.64.elf')
+		repo_loader_32 = os.path.join(repo_root, 'util', 'target_loader', 'target_loader.32.elf')
+
+		# If the repo provides a loader, prefer using it directly (use 64-bit loader for both if 32 missing)
+		if os.path.exists(repo_loader_64):
+			file_path_64 = repo_loader_64
+			if os.path.exists(repo_loader_32):
+				file_path_32 = repo_loader_32
+			else:
+				file_path_32 = repo_loader_64
+		# if repo 64 exists and configured 64 missing, try to copy it
+		try:
+			if os.path.exists(repo_loader_64) and not os.path.exists(file_path_64):
+				os.makedirs(os.path.dirname(file_path_64), exist_ok=True)
+				shutil.copy(repo_loader_64, file_path_64)
+			if os.path.exists(repo_loader_32) and not os.path.exists(file_path_32):
+				os.makedirs(os.path.dirname(file_path_32), exist_ok=True)
+				shutil.copy(repo_loader_32, file_path_32)
+		except Exception:
+			# ignore copy failures; will check existence below
+			pass
+
+		# If copy to configured locations failed (e.g., /root not writable),
+		# prefer using the repo-provided loaders directly when available.
+		if os.path.exists(repo_loader_64) and not os.path.exists(file_path_64):
+			file_path_64 = repo_loader_64
+		if os.path.exists(repo_loader_32) and not os.path.exists(file_path_32):
+			file_path_32 = repo_loader_32
+	# If repo has only 64-bit loader, allow using it for both to enable testing
+	if os.path.exists(repo_loader_64) and not os.path.exists(repo_loader_32):
+		file_path_32 = repo_loader_64
+
 	if os.path.exists(file_path_32) and os.path.exists(file_path_64):
 		log.info("target loader: %s, %s",file_path_32,file_path_64)
-		# chmod 0777 targeT_loader
-		os.chmod(file_path_64, stat.S_IRWXU|stat.S_IRWXG|stat.S_IRWXO)
-		os.chmod(file_path_32, stat.S_IRWXU|stat.S_IRWXG|stat.S_IRWXO)
+		# chmod 0777 target_loader (best-effort)
+		try:
+			os.chmod(file_path_64, stat.S_IRWXU|stat.S_IRWXG|stat.S_IRWXO)
+		except PermissionError:
+			log.warning("No permission to chmod %s; continuing", file_path_64)
+		except Exception as e:
+			log.warning("Failed to chmod %s: %s; continuing", file_path_64, str(e))
+		try:
+			os.chmod(file_path_32, stat.S_IRWXU|stat.S_IRWXG|stat.S_IRWXO)
+		except PermissionError:
+			log.warning("No permission to chmod %s; continuing", file_path_32)
+		except Exception as e:
+			log.warning("Failed to chmod %s: %s; continuing", file_path_32, str(e))
 		cfg.target_loader_64 = file_path_64
 		cfg.target_loader_32 = file_path_32
 	else:
 		log.critical("failed to locate target loader: %s,%s",file_path_32,file_path_64)
+		# try to continue without loader
 		os._exit(2)
 
 def generate_tag_file(cfg, do_static, do_dynamic):
@@ -580,12 +709,19 @@ def generate_output_log(cfg, do_static, do_dynamic):
 
 def generate_html(cfg):
 	cwd = os.getcwd()
-	os.chdir('/root/util/log_to_html/')
-	output_dynamic = os.path.join(cfg.file_log_dir, cfg.dynamic_log)
-	cmd_log_line = ["/usr/bin/python","/root/util/log_to_html/Linux_Trim.py",output_dynamic]
-	subprocess.call(cmd_log_line)
-	cmd_html_line = ["/usr/bin/python","/root/util/log_to_html/log_to_html.py",cfg.file_log_dir,"-elf"]
-	subprocess.call(cmd_html_line)
+	html_dir = '/root/util/log_to_html/'
+	if os.path.isdir(html_dir):
+		try:
+			os.chdir(html_dir)
+			output_dynamic = os.path.join(cfg.file_log_dir, cfg.dynamic_log)
+			cmd_log_line = ["/usr/bin/python", os.path.join(html_dir, "Linux_Trim.py"), output_dynamic]
+			subprocess.call(cmd_log_line)
+			cmd_html_line = ["/usr/bin/python", os.path.join(html_dir, "log_to_html.py"), cfg.file_log_dir, "-elf"]
+			subprocess.call(cmd_html_line)
+		except Exception as e:
+			logging.warning("Error during HTML generation: %s", e)
+	else:
+		logging.warning("HTML generator directory not found: %s - skipping HTML generation", html_dir)
 	os.chdir(cwd)
 
 def compress_log(cfg):
@@ -606,9 +742,18 @@ def init_localtime():
 	"""
 	f_localtime = "/etc/localtime"
 	f_src = "/usr/share/zoneinfo/Asia/Shanghai"
-	if os.path.exists(f_localtime):
-		os.remove(f_localtime)
-	os.symlink(f_src,f_localtime)
+	try:
+		if os.path.exists(f_localtime):
+			try:
+				os.remove(f_localtime)
+			except PermissionError:
+				log.warning("No permission to remove %s; skipping localtime setup", f_localtime)
+				return
+		os.symlink(f_src,f_localtime)
+	except PermissionError:
+		log.warning("No permission to create symlink %s -> %s; skipping localtime setup", f_localtime, f_src)
+	except Exception as e:
+		log.warning("Failed to set localtime: %s", str(e))
 
 def main(argc, argv):
 	init_localtime()

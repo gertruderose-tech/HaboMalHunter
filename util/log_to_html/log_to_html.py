@@ -45,7 +45,12 @@ def ChangeELFLog2Html(sample_dir):
         for line in fDict.readlines():
             item = line.split(',', 1)
             if len(item) == 2:
-                key = item[0].decode('utf-8')
+                try:
+                    key = item[0]
+                    if isinstance(key, bytes):
+                        key = key.decode('utf-8')
+                except Exception:
+                    key = item[0]
                 cn2enDict[key] = item[1]
 
         fDict.close()
@@ -102,14 +107,14 @@ def ChangeELFLog2Html(sample_dir):
     productversion = None
     compiler = None
 
-    if staticJson.has_key('BaseInfo'):
+    if 'BaseInfo' in staticJson:
 
-        if staticJson['BaseInfo'][0].has_key('MD5'):
+        if 'MD5' in staticJson['BaseInfo'][0]:
             md5hash = staticJson['BaseInfo'][0]['MD5']
 
-    if staticJson.has_key('BaseInfo'):
+    if 'BaseInfo' in staticJson:
 
-        if staticJson['BaseInfo'][0].has_key('FileType'):
+        if 'FileType' in staticJson['BaseInfo'][0]:
             filetype = staticJson['BaseInfo'][0]['FileType']
 
 
@@ -123,7 +128,7 @@ def ChangeELFLog2Html(sample_dir):
 
 
 
-    if staticJson.has_key('SubBaseInfo'):
+    if 'SubBaseInfo' in staticJson:
 
         myTable <<  tr() 
         myTable << td('Sub-file information:', nowrap='nowrap', style='vertical-align:top') 
@@ -159,11 +164,11 @@ def ChangeELFLog2Html(sample_dir):
 
     #Dynamic Info------------------------------------
 
-    if dynamicJson.has_key('Dynamic'):
+    if 'Dynamic' in dynamicJson:
         dynamicJson = dynamicJson['Dynamic']
 
     #Key behaviour
-    if dynamicJson.has_key('KeyInfo') and len(dynamicJson['KeyInfo']) > 0:
+    if 'KeyInfo' in dynamicJson and len(dynamicJson['KeyInfo']) > 0:
 
         myDetailFrame << h5('Key behaviour') 
         myEnumContainer = div(cl='enum-container')
@@ -196,7 +201,7 @@ def ChangeELFLog2Html(sample_dir):
         myDetailFrame << myEnumContainer
 
     #Process
-    if dynamicJson.has_key('Process') and len(dynamicJson['Process']) > 0:
+    if 'Process' in dynamicJson and len(dynamicJson['Process']) > 0:
 
         myDetailFrame << h5('Process') 
         myEnumContainer = div(cl='enum-container')
@@ -231,7 +236,7 @@ def ChangeELFLog2Html(sample_dir):
 
 
     #File
-    if dynamicJson.has_key('File') and len(dynamicJson['File']) > 0:
+    if 'File' in dynamicJson and len(dynamicJson['File']) > 0:
 
         myDetailFrame << h5('File') 
         myEnumContainer = div(cl='enum-container')
@@ -264,7 +269,7 @@ def ChangeELFLog2Html(sample_dir):
 
 
     #Network
-    if dynamicJson.has_key('Net') and len(dynamicJson['Net']) > 0:
+    if 'Net' in dynamicJson and len(dynamicJson['Net']) > 0:
 
         myDetailFrame << h5('Network') 
         myEnumContainer = div(cl='enum-container')
@@ -296,7 +301,7 @@ def ChangeELFLog2Html(sample_dir):
         myDetailFrame << myEnumContainer
 
     #Registry
-    if dynamicJson.has_key('Reg') and len(dynamicJson['Reg']) > 0:
+    if 'Reg' in dynamicJson and len(dynamicJson['Reg']) > 0:
 
         myDetailFrame << h5('Registry') 
         myEnumContainer = div(cl='enum-container')
@@ -328,7 +333,7 @@ def ChangeELFLog2Html(sample_dir):
         myDetailFrame << myEnumContainer
 
     #Hook
-    if dynamicJson.has_key('Hook') and len(dynamicJson['Hook']) > 0:
+    if 'Hook' in dynamicJson and len(dynamicJson['Hook']) > 0:
 
         myDetailFrame << h5('Hook') 
         myEnumContainer = div(cl='enum-container')
@@ -360,7 +365,7 @@ def ChangeELFLog2Html(sample_dir):
         myDetailFrame << myEnumContainer
 
     #Other
-    if dynamicJson.has_key('Other') and len(dynamicJson['Other']) > 0:
+    if 'Other' in dynamicJson and len(dynamicJson['Other']) > 0:
 
         myDetailFrame << h5('Other') 
         myEnumContainer = div(cl='enum-container')

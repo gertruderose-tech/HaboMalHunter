@@ -44,18 +44,36 @@ class BaseAnalyzer():
 
 	def write_file(self, fname, ctx):
 		file_path = os.path.join(self.cfg.file_log_dir, fname)
-		f = open(file_path, "wb", 0)
-		f.write(ctx)
-		f.close()
+		# write text content as utf-8
+		with open(file_path, "w", encoding='utf-8') as f:
+			if isinstance(ctx, bytes):
+				ctx = ctx.decode('utf-8', errors='replace')
+			f.write(ctx)
 
 	def normalise(self, input):
 		output = None
+		# if bytes, decode to str first
+		if isinstance(input, bytes):
+			try:
+				input = input.decode('utf-8', errors='replace')
+			except Exception:
+				input = str(input)
+
 		if isinstance(input, list):
 			output = []
 			for line in input:
+				# decode bytes in list elements if necessary
+				if isinstance(line, bytes):
+					try:
+						line = line.decode('utf-8', errors='replace')
+					except Exception:
+						line = str(line)
 				output.append(line.strip())
-		elif isinstance(input, basestring):
+		elif isinstance(input, str):
 			output = input.strip()
+		else:
+			# fallback to str
+			output = str(input).strip() if input is not None else None
 		return output
 
 	@staticmethod
@@ -75,6 +93,12 @@ class BaseAnalyzer():
 		except subprocess.CalledProcessError as e:
 			output = e.output
 			ret = e.returncode
+		except FileNotFoundError:
+			# md5sum missing
+			return "0"*32
+		# ensure string
+		if isinstance(output, bytes):
+			output = output.decode('utf-8', errors='replace')
 		output = output.strip()
 		if 0 == ret:
 			return output[:32]
@@ -127,6 +151,15 @@ class BaseAnalyzer():
 		except subprocess.CalledProcessError as e:
 			self.log.error("CalledProcessError: %s",str(e))
 			output = e.output
+		except FileNotFoundError as e:
+			self.log.warning("Command not found: %s", cmd[0])
+			return ""
+		# decode bytes to str for callers
+		if isinstance(output, bytes):
+			try:
+				output = output.decode('utf-8', errors='replace')
+			except Exception:
+				output = str(output)
 		return output
 
 	def check_output_std(self,cmd):
@@ -139,6 +172,11 @@ class BaseAnalyzer():
 		except subprocess.CalledProcessError as e:
 			self.log.error("CalledProcessError: %s",str(e))
 			stderrdata = e.output
+		# decode bytes
+		if isinstance(stdoutdata, bytes):
+			stdoutdata = stdoutdata.decode('utf-8', errors='replace')
+		if isinstance(stderrdata, bytes):
+			stderrdata = stderrdata.decode('utf-8', errors='replace')
 		return (stdoutdata,stderrdata)
 
 	def check_output_ret_safe(self,cmd):
@@ -151,6 +189,12 @@ class BaseAnalyzer():
 			self.log.error("CalledProcessError: %s",str(e))
 			output = e.output
 			ret = e.returncode
+		except FileNotFoundError:
+			self.log.warning("Command not found: %s", cmd[0])
+			return ("", 1)
+		# decode
+		if isinstance(output, bytes):
+			output = output.decode('utf-8', errors='replace')
 		return (output,ret)
 
 	def create_change_user(self, user_name):
@@ -172,8 +216,12 @@ class BaseAnalyzer():
 		except subprocess.CalledProcessError as e:
 			self.log.error("cmd: %s Error: %s",str(cmd),str(e))
 			output = e.output
-		#except OSError as e:
-		#	self.log.error("cmd: %s Error: %s",str(cmd),str(e))
+		except FileNotFoundError:
+			self.log.warning("Command not found: %s", cmd[0])
+			return ""
+		# decode
+		if isinstance(output, bytes):
+			output = output.decode('utf-8', errors='replace')
 		return output
 
 	def pick_ip(self, target_str):

@@ -24,7 +24,12 @@ import json
 import re
 import traceback
 
-import yara
+try:
+	import yara
+	_yara_available = True
+except Exception:
+	yara = None
+	_yara_available = False
 
 # Custermised Package
 sys.path.append("..")
@@ -136,7 +141,8 @@ class StaticAnalyzer(base.BaseAnalyzer):
 		"""
 		file_path = self.cfg.target_abs_path
 		yara_info = []
-		if os.path.exists(self.cfg.yara_rules_data):
+		# If yara is available and rules data exists, run yara rules
+		if _yara_available and os.path.exists(self.cfg.yara_rules_data):
 			rules = yara.load(self.cfg.yara_rules_data)
 			matches = rules.match(file_path)
 			self.log.info(matches)
@@ -147,6 +153,8 @@ class StaticAnalyzer(base.BaseAnalyzer):
 					node["ID"] = metrics.S_ID_YARA_INFO
 					node["str"] = item.rule
 					yara_info.append(node)
+		else:
+			self.log.debug("yara not available or rules file missing: yara_available=%r, rules_path=%s", _yara_available, self.cfg.yara_rules_data)
 		self.log.info(yara_info)
 		self.info["yara_info"] = yara_info
 
@@ -158,7 +166,7 @@ class StaticAnalyzer(base.BaseAnalyzer):
 		else:
 			self.log.error("file: %s dose not exist",file_path)
 	def get_machinetype(self):
-		if self.info.has_key("machinetype"):
+		if "machinetype" in self.info:
 			return self.info["machinetype"]
 		line = self.info["file"]
 		parts = line.split(",")
@@ -171,7 +179,7 @@ class StaticAnalyzer(base.BaseAnalyzer):
 		self.info["machinetype"] = ret
 		return ret
 	def get_filetype(self):
-		if self.info.has_key("filetype"):
+		if "filetype" in self.info:
 			return self.info["filetype"]
 		line = self.info["file"]
 		st_ind = line.find(":")
@@ -659,17 +667,17 @@ class StaticAnalyzer(base.BaseAnalyzer):
 			elf_sections["ELF_SECTIONS"] = self.info['elf_sections']
 			elf_sections["ID"] = metrics.S_ID_ELF_SECTIONS
 			elf_info["SECTIONS"] = elf_sections
- 			# ELF segments
- 			elf_segments = {}
- 			elf_segments["ELF_SEGMENTS"] = self.info['elf_segments']
- 			elf_segments['ID'] = metrics.S_ID_ELF_SEGMENTS
- 			elf_info["SEGMENTS"] = elf_segments
- 			# ELF DYNSYM
- 			elf_dynsym = {}
- 			elf_dynsym["ELF_DYNSYM"] = self.info['elf_dynsym']
- 			elf_dynsym['ID'] = metrics.S_ID_ELF_DYNSYM
- 			elf_info["DYNSYM"] = elf_dynsym
- 		#TODO fix the format
+			# ELF segments
+			elf_segments = {}
+			elf_segments["ELF_SEGMENTS"] = self.info['elf_segments']
+			elf_segments['ID'] = metrics.S_ID_ELF_SEGMENTS
+			elf_info["SEGMENTS"] = elf_segments
+			# ELF DYNSYM
+			elf_dynsym = {}
+			elf_dynsym["ELF_DYNSYM"] = self.info['elf_dynsym']
+			elf_dynsym['ID'] = metrics.S_ID_ELF_DYNSYM
+			elf_info["DYNSYM"] = elf_dynsym
+			#TODO fix the format
 		#output["ELF"].append(elf_info)
 		if self.get_filetype().startswith("ELF"):
 			output["ELF_SECTIONS"] = self.output_elf_sections()
@@ -678,9 +686,9 @@ class StaticAnalyzer(base.BaseAnalyzer):
 			output["STRINGS_ASCII"] = self.output_strings_ascii()
 			output["IP_INFO"] = self.output_ip_info()
 			output["SRC_FILE"] = self.output_source_info()
-			if self.info.has_key("packer_info"):
+			if "packer_info" in self.info:
 				output["PACKER_INFO"] = self.info["packer_info"]
-			if self.info.has_key("mdb_info"):
+			if "mdb_info" in self.info:
 				output["MDB_INFO"] = self.info["mdb_info"]
 		# exiftool
 		output["ExifTool"] = []

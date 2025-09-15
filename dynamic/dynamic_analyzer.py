@@ -288,13 +288,12 @@ class DynamicAnalyzer(base.BaseAnalyzer):
 
 	def merge_Import(self):
 		static_log_file = os.path.join(self.cfg.file_log_dir,self.info["hash_md5"]+".static")
-		fi = open(static_log_file,"rb")
-		static_info = json.load(fi)
-		fi.close()
+		# read/write JSON in text mode (utf-8)
+		with open(static_log_file, 'r', encoding='utf-8') as fi:
+			static_info = json.load(fi)
 		static_info["LD_Import"] = self.info.get("ld_symbol",[])
-		fo = open(static_log_file,"wb")
-		json.dump(static_info, fo, indent=4, sort_keys=False)
-		fo.close()
+		with open(static_log_file, 'w', encoding='utf-8') as fo:
+			json.dump(static_info, fo, indent=4, sort_keys=False)
 		self.log.info("%d LD_Import info was merged", len(static_info["LD_Import"] ))
 
 	def extract_func(self, line):
@@ -904,7 +903,7 @@ class DynamicAnalyzer(base.BaseAnalyzer):
 	def sort_and_add_action(self):
 		sorted_list = sorted(self.action_info, key=lambda x:x['ts'])
 		for node in sorted_list:
-			if node.has_key('comment'):
+			if 'comment' in node:
 				self.add_action([node['src'],node['dst'],node['ID'],node['ID_NOTE'],node['comment']])
 			else:
 				self.add_action([node['src'],node['dst'],node['ID'],node['ID_NOTE']])
@@ -1149,13 +1148,21 @@ class DynamicAnalyzer(base.BaseAnalyzer):
 		if os.path.exists(file_path):
 			new_md5 = base.BaseAnalyzer.get_md5_by_fname(file_path)
 			self.log.debug("old_md5:%s, new_md5:%s"%(old_md5, new_md5) )
-			if 0!=cmp(old_md5, new_md5):
-				self.log.info("self modified detected")
-				act = [file_path,"self modified detected, old_md5=%s, new_md5=%s"%(old_md5, new_md5), metrics.D_ID_SELF_MODIFIED, metrics.D_ID_SELF_MODIFIED_NOTE]
+			# Python 3 removed cmp(); use direct comparison instead
+			try:
+				if old_md5 != new_md5:
+					self.log.info("self modified detected")
+					act = [file_path, "self modified detected, old_md5=%s, new_md5=%s" % (old_md5, new_md5), metrics.D_ID_SELF_MODIFIED, metrics.D_ID_SELF_MODIFIED_NOTE]
+					self.add_action(act)
+					return True
+				else:
+					return False
+			except Exception:
+				# If comparison fails for any unexpected reason, assume modified to be safe
+				self.log.warning("Failed to compare md5 values; assuming file modified")
+				act = [file_path, "self modified detected (compare failed), old_md5=%s, new_md5=%s" % (old_md5, new_md5), metrics.D_ID_SELF_MODIFIED, metrics.D_ID_SELF_MODIFIED_NOTE]
 				self.add_action(act)
 				return True
-			else:
-				return False
 		else:
 			self.log.error("file %s dose not exist"%(file_path))
 			#delete is also a kind of modified

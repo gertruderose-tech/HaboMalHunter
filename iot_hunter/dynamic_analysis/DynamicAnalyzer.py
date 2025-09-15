@@ -144,10 +144,10 @@ class DynamicAnalyzer:
             fd = read_func_str.split(',')[0][9:]
             read_byte = read_func_str.split(',')[1][2:-1]
             if fd != '' and read_byte != ' ':
-                if recefrom_data.has_key(fd):
-                    recefrom_data[fd] = recefrom_data[fd] + read_byte
-                else:
-                    recefrom_data[fd] = read_byte
+                if fd in recefrom_data:
+                        recefrom_data[fd] = recefrom_data[fd] + read_byte
+                    else:
+                        recefrom_data[fd] = read_byte
 
     def format_read_str(self, line, file_read_data):
         """format read function args."""
@@ -158,7 +158,7 @@ class DynamicAnalyzer:
             fd = read_func_str.split(',')[0][5:]
             read_byte = read_func_str.split(',')[1][2:-1]
             if fd != '' and read_byte != ' ':
-                if file_read_data.has_key(fd):
+                if fd in file_read_data:
                     file_read_data[fd] = file_read_data[fd] + read_byte
                 else:
                     file_read_data[fd] = read_byte

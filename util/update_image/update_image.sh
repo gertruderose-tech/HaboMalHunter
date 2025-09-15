@@ -105,15 +105,15 @@ cd $dest_path
 curl -o$dest_file -L $download_url
 unzip -o -qq $dest_file 
 cd $unzip_dir
-/usr/bin/python setup.py install
+PYTHONWARNINGS=ignore /usr/bin/python setup.py install
 
 
-# set timezone here
-rm -f /etc/localtime
-ln -s -f /usr/share/zoneinfo/Asia/Shanghai /etc/localtime
-date
+# # set timezone here
+# rm -f /etc/localtime
+# ln -s -f /usr/share/zoneinfo/Asia/Shanghai /etc/localtime
+# date
 
-# set root password
-echo "Please change root password"
-passwd
-echo "Please poweroff"
+# # set root password
+# echo "Please change root password"
+# passwd
+# echo "Please poweroff"

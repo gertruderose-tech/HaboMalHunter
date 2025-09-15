@@ -11,8 +11,8 @@ License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF 
 either express or implied. See the License for the specific language governing permissions 
 and limitations under the License.
 """
-import static_action_id
-import dynamic_action_id
+from . import static_action_id
+from . import dynamic_action_id
 
 # Accoring to the design plan, the type of static_action_id will be string and the type of dynamic_action_id will be integer.
 def init():
@@ -33,6 +33,6 @@ def init():
 init()
 
 # after formalising, it will be safe to export
-from dynamic_action_id import *
-from static_action_id import *
-from syscall_table import syscall_table
+from .dynamic_action_id import *
+from .static_action_id import *
+from .syscall_table import syscall_table

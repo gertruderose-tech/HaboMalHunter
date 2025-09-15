@@ -41,27 +41,27 @@ def classifyLogInfo(dynamicLog):
                 desript = item[4]
 
                 if dyID in (8020005, 8020006, 8020007, 8020008, 8020009, 8020010, 8020011, 8020012):
-                    if infoDict["Dynamic"]["Process"].has_key(desript):
+                    if desript in infoDict["Dynamic"]["Process"]:
                         infoDict["Dynamic"]["Process"][desript].append(detail)
                     else:
                         infoDict["Dynamic"]["Process"][desript] = [detail]
 
                 elif dyID in (8020201, 8020202, 8020203, 8020204, 8020205, 8020206, 8020210, 8020212):
 
-                    if infoDict["Dynamic"]["File"].has_key(desript):
+                    if desript in infoDict["Dynamic"]["File"]:
                         infoDict["Dynamic"]["File"][desript].append(detail)
                     else:
                         infoDict["Dynamic"]["File"][desript] = [detail]
 
                 elif dyID in (8020401, 8020402, 8020403, 8020404, 8020405, 8020406, 8020407, 8020408, 8020409, 8020410, 8020414):
 
-                    if infoDict["Dynamic"]["Net"].has_key(desript):
+                    if desript in infoDict["Dynamic"]["Net"]:
                         infoDict["Dynamic"]["Net"][desript].append(detail)
                     else:
                         infoDict["Dynamic"]["Net"][desript] = [detail]
                 elif dyID in (8020603, 8020604, 8020605):
 
-                    if infoDict["Dynamic"]["Other"].has_key(desript):
+                    if desript in infoDict["Dynamic"]["Other"]:
                         infoDict["Dynamic"]["Other"][desript].append(detail)
                     else:
                         infoDict["Dynamic"]["Other"][desript] = [detail]
